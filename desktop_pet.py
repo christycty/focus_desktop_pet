@@ -1,63 +1,77 @@
 import tkinter as tk
-from tkinter import Label
+from tkinter import Label, Button
 import time
 import os
-from PIL import Image, ImageTk, ImageSequence
 import platform
+from PIL import Image, ImageTk, ImageSequence
 
 class DesktopPet:
     def __init__(self):
-        self.focus_time = 25 * 60  # 25 minutes in seconds (Pomodoro default)
-        
         # Create a root window
         self.root = tk.Tk()
-        self.root.attributes("-topmost", True)  # Start as topmost (floating)
-        self.root.overrideredirect(True)  # Remove window borders
+        self.root.attributes("-topmost", True)
+        self.root.overrideredirect(True)
 
-        # Load and resize pet image
+        # Load and preprocess animated GIF
         script_dir = os.path.dirname(os.path.abspath(__file__))
         gif_path = os.path.join(script_dir, "coding_snoopy.gif")
         
-        # Open GIF and extract frames
         gif = Image.open(gif_path)
         self.frames = []
         for frame in ImageSequence.Iterator(gif):
-            # Convert to RGBA, remove white edges, resize to 100x100
             frame = frame.convert("RGBA")
-            datas = frame.getdata()
-            new_data = []
-            frame.putdata(new_data)
             resized_frame = frame.resize((100, 100), Image.NEAREST)
             self.frames.append(ImageTk.PhotoImage(resized_frame))
 
+        # Animation variables
         self.current_frame = 0
         self.frame_count = len(self.frames)
-        
-        # Create pet label with the image, use magenta as background
-        self.pet_label = Label(self.root, image=self.frames[0])  # Magenta
+
+        # Create pet label with the first frame
+        self.pet_label = Label(self.root, image=self.frames[0], borderwidth=0, highlightthickness=0)
         self.pet_label.pack()
 
-        # Make magenta transparent instead of white
-        
+        # Platform-specific transparency
         if platform.system() == "Windows":
-            self.root.config(bg="#000100")  # Match the label background
-            self.pet_label.config(bg="#000100")
-            self.root.wm_attributes("-transparentcolor", "#000100")  # Magenta transparency
-        elif platform.system() == "Darwin":
-            self.root.attributes("-transparent", True)  # macOS transparency
-            self.root.config(bg="systemTransparent")  # Use system transparent background
+            self.root.config(bg="#FF00FF")
+            self.pet_label.config(bg="#FF00FF")
+            self.root.wm_attributes("-transparentcolor", "#FF00FF")
+        elif platform.system() == "Darwin":  # macOS
+            self.root.attributes("-transparent", True)
+            self.root.config(bg="systemTransparent")
             self.pet_label.config(bg="systemTransparent")
 
         # Initial position on desktop
-        self.root.geometry(f"+{100}+{self.root.winfo_screenheight()-200}")  # Near bottom-left
+        self.root.geometry(f"+{100}+{self.root.winfo_screenheight()-200}")
 
-        # Pet stats
-        self.focus_time_left = self.focus_time  # 25 minutes in seconds (Pomodoro default)
+        # Timer stats
+        self.focus_time_left = 25 * 60  # Default 25 minutes
+        self.initial_focus_time = self.focus_time_left
+        self.is_focusing = False
+        self.is_playing = False
 
-        # Timer label (positioned below pet)
-        self.timer_label = Label(self.root, text=self.format_time(self.focus_time_left), 
-                                font=("Arial", 12), fg="white", bg="black")
-        self.timer_label.pack()
+        # Timer frame for - [label] + and play/stop
+        self.timer_frame = tk.Frame(self.root, bg="black")
+        self.timer_frame.pack()
+
+        # Timer adjustment widgets
+        self.minus_button = Button(self.timer_frame, text="-", command=self.decrease_time, bg="black", fg="white")
+        self.minus_button.pack(side=tk.LEFT)
+        
+        self.time_label = Label(self.timer_frame, text=self.format_time(self.initial_focus_time), 
+                               font=("Arial", 12), bg="black", fg="white")
+        self.time_label.pack(side=tk.LEFT)
+        
+        self.plus_button = Button(self.timer_frame, text="+", command=self.increase_time, bg="black", fg="white")
+        self.plus_button.pack(side=tk.LEFT)
+
+        # Play/Stop button
+        self.play_stop_button = Button(self.timer_frame, text="▶", command=self.toggle_play_stop, 
+                                      bg="black", fg="white")
+        self.play_stop_button.pack(side=tk.LEFT)  # Added padding for spacing
+        
+        self.reset_button = Button(self.timer_frame, text="⟳", command=self.reset_timer, 
+                          bg="black", fg="white")
 
         # Bind mouse events for dragging
         self.pet_label.bind("<Button-1>", self.start_drag)
@@ -66,13 +80,12 @@ class DesktopPet:
         # Context menu for options
         self.menu = tk.Menu(self.root, tearoff=0)
         self.menu.add_command(label="Start Focus", command=self.start_focus)
+        self.menu.add_command(label="Reset Timer", command=self.reset_timer)
         self.menu.add_command(label="Toggle Float", command=self.toggle_float)
-        self.menu.add_command(label="Pause/Resume", command=self.toggle_focus)
         self.menu.add_command(label="Exit", command=self.root.quit)
         self.pet_label.bind("<Button-3>", self.show_menu)
 
-        # Start updates
-        self.is_focusing = False
+        # Start updates and animation
         self.update_pet()
         self.animate()
         self.root.mainloop()
@@ -100,36 +113,69 @@ class DesktopPet:
         secs = seconds % 60
         return f"{mins:02d}:{secs:02d}"
 
-    def reset_focus(self):
-        self.focus_time_left = self.focus_time
-        self.timer_label.config(text=self.format_time(self.focus_time_left))
-    
+    def decrease_time(self):
+        if self.initial_focus_time >= 300:  # Minimum 5 minutes
+            self.initial_focus_time -= 300
+            self.focus_time_left = self.initial_focus_time
+            self.time_label.config(text=self.format_time(self.initial_focus_time))
+
+    def increase_time(self):
+        self.initial_focus_time += 300
+        self.focus_time_left = self.initial_focus_time
+        self.time_label.config(text=self.format_time(self.initial_focus_time))
+
+    def toggle_play_stop(self):
+        if not self.is_focusing:  # Before session starts
+            self.start_focus()
+        else:  # During session
+            self.is_playing = not self.is_playing
+            self.play_stop_button.config(text="▶" if not self.is_playing else "⏸")
+
     def start_focus(self):
-        self.reset_focus()
-        self.is_focusing = True
+        if not self.is_focusing:
+            self.is_focusing = True
+            self.is_playing = True
+            self.minus_button.pack_forget()
+            self.plus_button.pack_forget()
+            self.time_label.config(text=self.format_time(self.focus_time_left))
+            self.play_stop_button.config(text="⏸")            
+            self.reset_button.pack(side=tk.LEFT)
+            
+    def reset_timer(self):
+        self.is_focusing = False
+        self.is_playing = False
+        self.focus_time_left = self.initial_focus_time
         
-    def toggle_focus(self):
-        self.is_focusing = not self.is_focusing
-
-
+        self.reset_button.pack_forget()
+        self.play_stop_button.pack_forget()
+        self.play_stop_button.config(text="▶")
+        
+        self.time_label.config(text=self.format_time(self.initial_focus_time))
+    
+        self.minus_button.pack(side=tk.LEFT)
+        self.play_stop_button.pack(side=tk.LEFT)    
+        self.plus_button.pack(side=tk.LEFT)
+        
     def update_pet(self):
-        if self.is_focusing:
+        if self.is_focusing and self.is_playing:
             self.focus_time_left -= 1
-            self.timer_label.config(text=self.format_time(self.focus_time_left))
+            self.time_label.config(text=self.format_time(self.focus_time_left))
             if self.focus_time_left <= 0:
                 self.is_focusing = False
-                self.timer_label.config(text="Focus Done!")
-
+                self.is_playing = False
+                self.time_label.config(text="Focus Done!")
+                self.play_stop_button.config(text="▶")
+                self.minus_button.pack(side=tk.LEFT)
+                self.plus_button.pack(side=tk.LEFT)
+                self.focus_time_left = self.initial_focus_time
+                self.time_label.config(text=self.format_time(self.initial_focus_time))
         self.root.after(1000, self.update_pet)
 
     def animate(self):
-        if self.is_focusing:
-            # Update the label with the next frame
+        if self.is_playing:
             self.pet_label.config(image=self.frames[self.current_frame])
             self.current_frame = (self.current_frame + 1) % self.frame_count
-        # Schedule the next frame (adjust 100 for animation speed, in milliseconds)
         self.root.after(300, self.animate)
-        
-# Run the pet
+
 if __name__ == "__main__":
     DesktopPet()
