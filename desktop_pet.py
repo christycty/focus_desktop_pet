@@ -3,6 +3,7 @@ from tkinter import Label
 import time
 import os
 from PIL import Image, ImageTk, ImageSequence
+import platform
 
 class DesktopPet:
     def __init__(self):
@@ -37,9 +38,15 @@ class DesktopPet:
         self.pet_label.pack()
 
         # Make magenta transparent instead of white
-        self.root.config(bg="#000100")  # Match the label background
-        self.pet_label.config(bg="#000100")
-        self.root.wm_attributes("-transparentcolor", "#000100")  # Magenta transparency
+        
+        if platform.system() == "Windows":
+            self.root.config(bg="#000100")  # Match the label background
+            self.pet_label.config(bg="#000100")
+            self.root.wm_attributes("-transparentcolor", "#000100")  # Magenta transparency
+        elif platform.system() == "Darwin":
+            self.root.attributes("-transparent", True)  # macOS transparency
+            self.root.config(bg="systemTransparent")  # Use system transparent background
+            self.pet_label.config(bg="systemTransparent")
 
         # Initial position on desktop
         self.root.geometry(f"+{100}+{self.root.winfo_screenheight()-200}")  # Near bottom-left
@@ -60,6 +67,7 @@ class DesktopPet:
         self.menu = tk.Menu(self.root, tearoff=0)
         self.menu.add_command(label="Start Focus", command=self.start_focus)
         self.menu.add_command(label="Toggle Float", command=self.toggle_float)
+        self.menu.add_command(label="Pause/Resume", command=self.toggle_focus)
         self.menu.add_command(label="Exit", command=self.root.quit)
         self.pet_label.bind("<Button-3>", self.show_menu)
 
@@ -99,6 +107,10 @@ class DesktopPet:
     def start_focus(self):
         self.reset_focus()
         self.is_focusing = True
+        
+    def toggle_focus(self):
+        self.is_focusing = not self.is_focusing
+
 
     def update_pet(self):
         if self.is_focusing:
@@ -111,9 +123,10 @@ class DesktopPet:
         self.root.after(1000, self.update_pet)
 
     def animate(self):
-        # Update the label with the next frame
-        self.pet_label.config(image=self.frames[self.current_frame])
-        self.current_frame = (self.current_frame + 1) % self.frame_count
+        if self.is_focusing:
+            # Update the label with the next frame
+            self.pet_label.config(image=self.frames[self.current_frame])
+            self.current_frame = (self.current_frame + 1) % self.frame_count
         # Schedule the next frame (adjust 100 for animation speed, in milliseconds)
         self.root.after(300, self.animate)
         
